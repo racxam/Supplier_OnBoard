@@ -1,0 +1,145 @@
+_schema-version: 3.3.0
+ID: SupplierOnBoard
+description: A simple CAP project.
+version: 1.0.0
+modules:
+  - name: SupplierOnBoard-srv
+    type: nodejs
+    path: gen/srv
+    requires:
+      - name: SupplierOnBoard-db
+      - name: uaa_SupplierOnBoard
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    parameters:
+      buildpack: nodejs_buildpack
+      readiness-health-check-http-endpoint: /health
+      readiness-health-check-type: http
+    build-parameters:
+      builder: npm
+  - name: SupplierOnBoard-db-deployer
+    type: hdb
+    path: gen/db
+    requires:
+      - name: SupplierOnBoard-db
+    parameters:
+      buildpack: nodejs_buildpack
+  - name: SupplierOnBoard-destination-content
+    type: com.sap.application.content
+    requires:
+      - name: SupplierOnBoard-destination-service
+        parameters:
+          content-target: true
+      - name: SupplierOnBoard_html_repo_host
+        parameters:
+          service-key:
+            name: SupplierOnBoard_html_repo_host-key
+      - name: uaa_SupplierOnBoard
+        parameters:
+          service-key:
+            name: uaa_SupplierOnBoard-key
+    parameters:
+      content:
+        instance:
+          destinations:
+            - Name: supplier_app_SupplierOnBoard_html_repo_host
+              ServiceInstanceName: SupplierOnBoard-html5-app-host-service
+              ServiceKeyName: SupplierOnBoard_html_repo_host-key
+              sap.cloud.service: supplier_app
+            - Authentication: OAuth2UserTokenExchange
+              Name: supplier_app_uaa_SupplierOnBoard
+              ServiceInstanceName: SupplierOnBoard-xsuaa-service
+              ServiceKeyName: uaa_SupplierOnBoard-key
+              sap.cloud.service: supplier_app
+          existing_destinations_policy: ignore
+    build-parameters:
+      no-source: true
+  - name: SupplierOnBoard-app-content
+    type: com.sap.application.content
+    path: .
+    requires:
+      - name: SupplierOnBoard_html_repo_host
+        parameters:
+          content-target: true
+    build-parameters:
+      build-result: resources
+      requires:
+        - artifacts:
+            - comsumosupplieronboarding.zip
+          name: comsumosupplieronboarding
+          target-path: resources/
+        - artifacts:
+            - comsumoprocesstaskuimodule.zip
+          name: comsumoprocesstaskuimodule
+          target-path: resources/
+  - name: comsumosupplieronboarding
+    type: html5
+    path: app/supplieronboarding
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm install
+        - npm run build:cf
+      supported-platforms: []
+  - name: comsumoprocesstaskuimodule
+    type: html5
+    path: processtask-ui-module
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm install
+        - npm run build:cf
+      supported-platforms: []
+resources:
+  - name: SupplierOnBoard-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+  - name: SupplierOnBoard-destination-service
+    type: org.cloudfoundry.managed-service
+    parameters:
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            destinations:
+              - Authentication: NoAuthentication
+                Name: ui5
+                ProxyType: Internet
+                Type: HTTP
+                URL: https://ui5.sap.com
+            existing_destinations_policy: update
+        version: 1.0.0
+      service: destination
+      service-name: SupplierOnBoard-destination-service
+      service-plan: lite
+  - name: SupplierOnBoard_html_repo_host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-name: SupplierOnBoard-html5-app-host-service
+      service-plan: app-host
+  - name: uaa_SupplierOnBoard
+    type: org.cloudfoundry.managed-service
+    parameters:
+      config:
+        tenant-mode: dedicated
+        xsappname: SupplierOnBoard-${org}-${space}
+      path: ./xs-security.json
+      service: xsuaa
+      service-name: SupplierOnBoard-xsuaa-service
+      service-plan: application
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
